@@ -21,14 +21,28 @@ W = tf.constant(embedding, name="W") #inefficient in memory
 
 #load tweets and hashtags
 def loadTweets():
-    pass
+    tweets = []
+    hashtags = []
+    with open("tweets.txt", "r") as tfile:
+        tweets = tfile.readlines()
+    with open("hashtags.txt", "r") as hfile:
+        hashtags = hfile.readlines()
+    return tweets, hashtags
 #replace all words that don't appear in lookup with {UNK} or other token
 def parseTweets(tweets):
-    pass
+    #remove punctuation/irregularities via regex
+    #TODO filter for embedding
+    return [tweet.lowercase().split() for tweet in tweets]
 #create batches
-def makeBatches(tweets, hashtags):
+def makeBatches(tweets, hashtags, batchsize):
+    pass
+def buildGraph():
     pass
 #look up embeddings
 #train hashtags (if needed?)
+def forward(batches, hashtags):
+    pass
 #feed embeddings through covnet and feed forward
 #backprop to predict hashtags
+def nce_loss(loss):
+    pass
