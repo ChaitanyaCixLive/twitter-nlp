@@ -1,37 +1,61 @@
+# Shishir Tandale
 import json, re, sys, numpy as np
-#import baseline_model
+# import baseline_model
 
-class TwitterJSONParse(object):
-    def __init__(self, json):
-        self.json = json
-    def containsHashtags(self, tweet):
-        return len(tweet['entities']['hashtags']) > 0
-    def getHashtags(self, tweet):
-        # returns empty string if no hashtags
-        return " ".join(["#"+h["text"] for h in tweet['entities']['hashtags']])
-    def parseJSON(self):
-		# for more documentation, visit:
-		# https://dev.twitter.com/overview/api/tweets
-		# only saves useful tweets and hashtags for embeddings
-        def format(tweet):
-            r_hashtag = "([#].*)"
-            r_twlink = "(http[:][/]{2}t[.]co.*)"
-            # remove all hashtags and twitter links from text
-            text = (re.sub("|".join([r_hashtag,r_twlink]), "", tweet["text"]))
-            hashtags = (self.getHashtags(tweet))
-            return text, hashtags
-        def isValid(tweet, hashtags):
-            # text is only hashtags, or a link. not useful
-            if hashtags == "" or text == "":
-                return False
+class Hashtag(object):
+    hashtag_map = None
+    def __init__(self, hashtag, tweet_text):
+        self.tweet = tweet_text
+        self.hashtag = hashtag
+        # check if hashtag is in map, if not, adds it
+        # uses a list attached to the dict to store tweets, unordered
+        if Hashtag.hashtag_map == None:
+            Hashtag.hashtag_map = {self.hashtag:[self.tweet]}
+        else:
+            if self.hashtag not in Hashtag.hashtag_map.keys():
+                Hashtag.hashtag_map[self.hashtag] = [self.tweet]
             else:
-                return True
-        self.tweetObjs = [json.loads(line) for line in self.json]
-        self.formattedTweets = [format(tw) for tw in self.tweetObjs]
-        self.filteredTweets = [tw for tw in self.formattedTweets if isValid]
-        #package up for return
-        tweets, hashtags = zip(*self.filteredTweets)
-        return tweets, hashtags
+                Hashtag.hashtag_map[self.hashtag].append(self.tweet)
+        # ensures we only keep the first, primary instance
+        self = Hashtag.hashtag_map[self.hashtag]
+class TwitterJSONParse(object):
+    def __init__(self, jsontxt, numTweets):
+        self.numTweets  = numTweets
+        self.progress_init("Parsing text into JSON Object")
+        self.tweetObjs = [self.progress(json.loads(line)) for line in jsontxt]
+    def progress_init(self, message):
+        self.progress_n = 0.
+        self.progress_message = message
+    def progress(self, data=None):
+        self.progress_n += 100./self.numTweets
+        if self.progress_n < 100:
+            sys.stdout.write('\r{0}: {1}%'.format(self.progress_message, round(self.progress_n,2)))
+        else:
+            sys.stdout.write('\r'+' '*(len(self.progress_message)+10)+'\r')
+        sys.stdout.flush()
+        return data
+    def parseJSON(self):
+        # for more documentation, visit:
+        # https://dev.twitter.com/overview/api/tweets
+        # only saves useful tweets and hashtags for embeddings
+        def extractText(tweet):
+            r_hashtag = "([#].*)"
+            r_twlink = "(http://t[.]co.*)"
+            # remove all hashtags and twitter links from text
+            text = re.sub(r_hashtag, "<hashtag>", tweet["text"].lower())
+            text = re.sub(r_twlink, "<url>", text)
+
+            hashtags = [Hashtag(h["text"].lower(), text) for h in tweet["entities"]["hashtags"]]
+            return text, hashtags
+        # used for progress indicator
+        self.progress_init("Formatting and extracting hashtags")
+        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetObjs]
+        self.progress_init("Filtering tweets")
+        filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if self.progress(hashtags != [] and tweet != "")]
+        # package up for retur
+        tweets, hashtags = zip(*filteredTweets)
+        return tweets, hashtags, Hashtag.hashtag_map
+
 def loadGlove(embeddingFile, vocabSize, embeddingDim):
     lookup = {}
     counter = 0
@@ -41,14 +65,30 @@ def loadGlove(embeddingFile, vocabSize, embeddingDim):
         lookup[embed[0]] = counter
         vect = [float(i) for i in embed[1:]]
         glove[counter] = vect
-    return embeddings, lookup
-def main(*stdin):
-    testFile = "data/json/cache-0-first300.json"
+    return glove, lookup
+def write_stdout(str):
+    sys.stdout.write(str)
+    sys.stdout.flush()
+
+def main():
+    testFile = "data/json/cache-0-first100000.json"
+    # testFile = "data/json/cache-0.json"
+    gloveFile = "data/embeddings/glove.twitter.27B.25d.txt"
+    vocabSize = 100000 # `wc -l <testFile>`
+    embeddingDim = 25 # must match up with glove
+    numHashtags = 500 # num most common hashtags to embed
+    numHashtags_print = 100 # used in test and debug methods
+
     json = open(testFile)
-    tweets, hashtags = TwitterJSONParse(json).parseJSON()
-    print("Num Tweets: {}".format(len(tweets)))
-    glove25, lookup = loadGlove("data/embeddings/glove.twitter.27B.25d.txt", 1193514, 25)
-    blm = BaselineModel(tweets, hashtags, glove25)
+    tweets, hashtags, hashtag_map = TwitterJSONParse(json, vocabSize).parseJSON()
+    print("Num tweets: {}, Num unique hashtags: {}".format(len(tweets), len(hashtag_map.keys())))
+    # map each hashtag to the number of tweets its associated with, sort, then reverse the list
+    sortedHashtags = sorted([(len(hashtag_map[key]), key) for key in hashtag_map.keys()])[-1::-1]
+    justHashtagsSorted = [hashtag for _, hashtag in sortedHashtags]
+    print("{} most common hashtags: {}".format(numHashtags_print, sortedHashtags[:numHashtags_print]))
+
+    glove25, glove_lookup = loadGlove(gloveFile, vocabSize, embeddingDim)
+    # blm = BaselineModel(tweets, justHashtagsSorted, hashtag_map, glove25, glove_lookup, vocabSize, embeddingDim, numHashtags)
 
 if __name__ == "__main__":
     main()
