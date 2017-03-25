@@ -1,39 +1,32 @@
-import sys
-import tweepy
-import json
+import tweepy, json
 
-def printJSONTweet(tweets):
-	for tweet in tweets:
-		print(json.dumps(tweet._json))
+class TweepyClient(object):
+	def __init__(self):
+		self.con_key = 'JLaq5gPoqprTBlD6f5L4n3EzD'
+		self.con_sec = '5XJtuLkFWigeAOcU9eDq14mK07S1PT3MCsNYZKqLAZq7IibghL'
+		self.acc_tok = '396595009-si5HIeXRODievxVqbRd9uYcwL0YKqaZoZwmxYagp'
+		self.acc_sec = 'TPt5PLAp8Y7UkiKJWKMDb9wkmfeMIJWphmX93TLfSiRJs'
+		self.auth = tweepy.OAuthHandler(self.con_key, self.con_sec)
+		self.auth.set_access_token(self.acc_tok, self.acc_sec)
+		self.api = tweepy.API(self.auth)
+		self.tweets = []
+	def retrieve(self, user, numTweets, *oldest):
+		numTweetsToGet = min(200, numTweets)
+		if oldest:
+			self.tweets.extend(self.api.user_timeline(screen_name = user, count=numTweetsToGet, max_id=oldest))
+		else:
+			self.tweets.extend(self.api.user_timeline(screen_name = user, count=numTweetsToGet))
+		if numTweets > 200:
+			# Using recursive retrieve to get around API limit
+			self.retrieve(user, numTweets-200, self.tweets[-1].id-1)
 
-if len(sys.argv)<2:
-	print("Expected two passed arguments: %s <twitterUsername> <numTweets<=3000>"%sys.argv[0])
-	exit()
+def printJSONTweets(tweets):
+	parsedTweets = [json.dumps(tweet._json) for tweet in tweets]
+	print(parsedTweets)
+def main(twitterUsername, count):
+	tweepy = TweepyClient()
+	tweepy.retrieve(twitterUsername, count)
+	printJSONTweets(tweepy.tweets)
 
-con_key = 'JLaq5gPoqprTBlD6f5L4n3EzD'
-con_sec = '5XJtuLkFWigeAOcU9eDq14mK07S1PT3MCsNYZKqLAZq7IibghL'
-acc_tok = '396595009-si5HIeXRODievxVqbRd9uYcwL0YKqaZoZwmxYagp'
-acc_sec = 'TPt5PLAp8Y7UkiKJWKMDb9wkmfeMIJWphmX93TLfSiRJs'
-
-auth = tweepy.OAuthHandler(con_key, con_sec)
-auth.set_access_token(acc_tok, acc_sec)
-api = tweepy.API(auth)
-
-target_user = sys.argv[1] #get tweets from passed arg[1] 
-max_tweets = int(sys.argv[2]) #get number of tweets from passed arg[2]
-if max_tweets > 3000:
-	print("You requested %d tweets, but the Twitter API max is 3000."%max_tweets);
-	max_tweets = 3000
-
-tweets = []
-
-new_tweets = api.user_timeline(screen_name = target_user, count=200)
-tweets.extend(new_tweets)
-oldest = tweets[-1].id-1
-printJSONTweet(new_tweets)
-
-while len(tweets) < max_tweets: 
-	new_tweets = api.user_timeline(screen_name = target_user, count=200, max_id=oldest)
-	tweets.extend(new_tweets)
-	oldest = tweets[-1].id-1
-	printJSONTweet(new_tweets)
+if __name__ == "__main__":
+	main("shishirtandale", 1)
