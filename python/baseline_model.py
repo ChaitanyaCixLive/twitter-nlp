@@ -2,25 +2,36 @@
 import tensorflow as tf, numpy as np
 
 class BaselineModel(object):
-    def __init__(self, tweets, hashtags, hashtagMap, wordEmbeddings, wordMap, vocabSize, embeddingDim, numHashtags):
+    def __init__(self, tweets, hashtags, hashtagMap, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags):
         self.tweets = tweets
         self.hashtags = hashtags
         self.hashtagMap = hashtagMap
         self.numHashtags = numHashtags
+        self.embeddingDim = embeddingDim
+        self.gloveSize = gloveSize
         self.wordMap = wordMap
 
-        self.wordEmbeddings = tf.get_variable(name="wordEmbeddings", shape=[vocabSize, embeddingDim], tf.constant_initializer(wordEmbeddings), trainable=False)
-        self.hashtagEmbeddings = tf.get_variable(name="hashtagEmbeddings", shape=[numHashtags, embeddingDim], tf.constant_initializer([trainHashtag(h) for h in hashtags[:numHashtags]])), trainable=False, name="hashtagEmbeddings")
+        print("Converting Glove embeddings to tensor")
+        self.wordEmbeddings = tf.Variable(tf.constant(0.0, shape=[gloveSize, embeddingDim]), trainable=False, name="wordEmbeddings")
+        glovePlaceholder = tf.placeholder(tf.float32, [gloveSize, embeddingDim])
+        gloveInit = self.wordEmbeddings.assign(glovePlaceholder)
+
+        self.sess = tf.Session()
+        with self.sess.as_default():
+            #TODO fix word embeddings not being initalized properly
+            self.sess.run(gloveInit, feed_dict={glovePlaceholder: gloveEmbeddings})
+            print("Embedding {} most common hashtags".format(self.numHashtags))
+            hashtag_embed_vector = [self.trainHashtag(h) for h in self.hashtags[:self.numHashtags]]
+            self.hashtagEmbeddings = tf.stack(hashtag_embed_vector).eval()
+
     def tweetEmbedding(self, tweet):
-        words = tweet.split()
-        def findInTable(word):
-            return self.wordMap[word] if word in self.wordMap.keys() else -1
-        word_ids = tf.convert_to_tensor([findInTable(w) for w in words], dtype=tf.int32)
+        word_ids = [self.wordMap[word] for word in tweet.split() if word in self.wordMap.keys()]
+        if word_ids == []:
+            return tf.zeros((25))
         embedded_words = tf.nn.embedding_lookup(self.wordEmbeddings, word_ids)
-        tweet_embedding = tf.concat(0, embedded_words)
-        return tweet_embedding
+        return tf.reduce_sum(embedded_words, 0)
     def trainHashtag(self, hashtag):
-        tweet_embeddings = [tweetEmbedding(t) for t in self.hashtagMap[hashtag]]
-        return tf.concat(0, tweet_embeddings)
+        tweet_embeddings = tf.stack([self.tweetEmbedding(t) for t in self.hashtagMap[hashtag]])
+        return tf.reduce_sum(tweet_embeddings, 0)
     #feed embeddings through covnet and feed forward
     #backprop to predict hashtags
