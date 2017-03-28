@@ -23,10 +23,9 @@ class TweepyClient(object):
 def printJSONTweets(tweets):
 	parsedTweets = [json.dumps(tweet._json) for tweet in tweets]
 	print(parsedTweets)
-def main(twitterUsername, count):
-	tweepy = TweepyClient()
-	tweepy.retrieve(twitterUsername, count)
-	printJSONTweets(tweepy.tweets)
+def getTweets(twitterUsername, count):
+	return [json.dumps(tweet._json) for tweet in \
+	 TweepyClient().retrieve(twitterUsername, count).tweets]
 
 if __name__ == "__main__":
-	main("shishirtandale", 1)
+	printJSONTweets(getTweets("UddiptoDutta", 100))

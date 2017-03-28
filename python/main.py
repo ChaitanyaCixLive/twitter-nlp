@@ -1,14 +1,12 @@
 # Shishir Tandale
 import json, re, sys, numpy as np
 import baseline_model as bm
-
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
+import tw_download
 
 class Hashtag(object):
     hashtag_map = None
-    def __init__(self, hashtag, tweet_text):
-        self.tweet = tweet_text
+    def __init__(self, hashtag, tweet):
+        self.tweet = tweet
         self.hashtag = hashtag
         # check if hashtag is in map, if not, adds it
         # uses a list attached to the dict to store tweets, unordered
@@ -21,11 +19,18 @@ class Hashtag(object):
                 Hashtag.hashtag_map[self.hashtag].append(self.tweet)
         # ensures we only keep the first, primary instance
         self = Hashtag.hashtag_map[self.hashtag]
+class Tweet(object):
+    def __init__(self, text):
+        self.text = text
+        self.embedding = None
+    def __repr__(self):
+        return self.text
+
 class TwitterJSONParse(object):
     def __init__(self, jsontxt, numTweets):
         self.numTweets  = numTweets
         self.progress_init("Parsing text into JSON Object")
-        self.tweetObjs = [self.progress(json.loads(line)) for line in jsontxt]
+        self.tweetJSONObjs = [self.progress(json.loads(line)) for line in jsontxt]
     def progress_init(self, message):
         self.progress_n = 0.
         self.progress_step = 100./self.numTweets
@@ -48,13 +53,14 @@ class TwitterJSONParse(object):
             # remove all hashtags and twitter links from text
             text = re.sub(r_hashtag, "<hashtag>", tweet["text"].lower())
             text = re.sub(r_twlink, "<url>", text)
+            tweetObj = Tweet(text)
 
-            hashtags = [Hashtag(h["text"].lower(), text) for h in tweet["entities"]["hashtags"]]
-            return text, hashtags
+            hashtags = [Hashtag(h["text"].lower(), tweetObj) for h in tweet["entities"]["hashtags"]]
+            return tweetObj, hashtags
         # used for progress indicator
         self.progress_init("Formatting and extracting hashtags")
-        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetObjs]
-        filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if (hashtags != [] and tweet != "")]
+        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetJSONObjs]
+        filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if (hashtags != [] and tweet.text != "")]
         # package up for retur
         tweets, hashtags = zip(*filteredTweets)
         return tweets, hashtags, Hashtag.hashtag_map
@@ -84,6 +90,7 @@ def main():
     numHashtags_print = 100 # used in test and debug methods
 
     json = open(testFile)
+    # json = tw_download.getTweets("shishirtandale", 1000)
     tweets, hashtags, hashtag_map = TwitterJSONParse(json, vocabSize).parseJSON()
     print("Num tweets: {}, Num unique hashtags: {}".format(len(tweets), len(hashtag_map.keys())))
 
