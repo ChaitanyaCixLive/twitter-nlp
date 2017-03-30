@@ -59,7 +59,7 @@ class TwitterJSONParse(object):
             return tweetObj, hashtags
         # used for progress indicator
         self.progress_init("Formatting and extracting hashtags")
-        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetJSONObjs]
+        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetJSONObjs[:self.numTweets]]
         filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if (hashtags != [] and tweet.text != "")]
         # package up for retur
         tweets, hashtags = zip(*filteredTweets)
@@ -80,8 +80,7 @@ def loadGlove(embeddingFile, gloveSize, gloveDim):
     return glove, lookup
 
 def main():
-    testFile = "data/json/cache-0-first100000.json"
-    # testFile = "data/json/cache-0.json"
+    testFile = "data/json/cache-0.json"
     gloveFile = "data/embeddings/glove.twitter.27B.25d.txt"
     vocabSize = 100000 # `wc -l <testFile>`
     gloveSize = 1193514
