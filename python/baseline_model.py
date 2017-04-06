@@ -1,6 +1,5 @@
 # Shishir Tandale
-import tensorflow as tf, numpy as np, os
-from tensorflow.contrib.tensorboard.plugins import projector
+import tensorflow as tf, numpy as np, os.path
 
 class BaselineModel(object):
     def __init__(self, tweets, hashtags, hashtagMap, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags):
@@ -8,29 +7,48 @@ class BaselineModel(object):
         self.hashtags = hashtags
         self.hashtagMap = hashtagMap
         self.numHashtags = numHashtags
+        self.numTweets = len(tweets)
         self.embeddingDim = embeddingDim
+        self.hiddenLayerNodes = embeddingDim
         self.gloveSize = gloveSize
         self.wordMap = wordMap
-        self.LOG_DIR = "log"
+        self.filenames = {'embeddings':'/tmp/twitternlp_embeddings'}
 
-        print("Converting Glove embeddings to tensor")
-        self.wordEmbeddings = tf.Variable(tf.constant(0.0, shape=[gloveSize, embeddingDim]), trainable=False, name="wordEmbeddings")
-        glovePlaceholder = tf.placeholder(tf.float32, [gloveSize, embeddingDim])
-        gloveInit = self.wordEmbeddings.assign(glovePlaceholder)
+        # Create graph
+        with tf.Graph().as_default():
+            self.wordEmbeddings = tf.Variable(tf.constant(0.0, shape=[gloveSize, embeddingDim]), trainable=False, name="wordEmbeddings")
+            glovePlaceholder = tf.placeholder(tf.float32, [gloveSize, embeddingDim])
+            gloveInit = self.wordEmbeddings.assign(glovePlaceholder)
 
-        self.sess = tf.Session()
-        with self.sess.as_default():
-            self.sess.run(gloveInit, feed_dict={glovePlaceholder: gloveEmbeddings})
-            print("Embedding {} most common hashtags".format(self.numHashtags))
-            hashtag_embed_vector = [self.trainHashtag(h) for h in self.hashtags[:self.numHashtags]]
-            self.hashtagEmbeddings = tf.stack(hashtag_embed_vector).eval()
+            self.tweetEmbeddings = tf.Variable(tf.constant(0.0, shape=[self.numTweets, embeddingDim]), trainable=False, name="tweetEmbeddings")
+            self.hashtagEmbeddings = tf.Variable(tf.constant(0.0, shape=[numHashtags, embeddingDim]), trainable=False, name="hashtagEmbeddings")
 
-            # self.saveEmbeddings(self.sess)
-
-    def saveEmbeddings(self, session):
-        print("Saving embeddings for visualization")
-        self.saver = tf.train.Saver()
-        self.saver.save(session, os.path.join(self.LOG_DIR, "model.ckpt"))
+            #TODO make methods to populate feed dicts with correctly shaped batches
+            #self.inferenceGraph = inference()
+            #TODO test network
+            init_op = tf.global_variables_initializer()
+            saver = tf.train.Saver({'hashtagEmbeddings':self.hashtagEmbeddings, 'tweetEmbeddings':self.tweetEmbeddings})
+            with tf.Session() as sess:
+                sess.run(init_op)
+                sess.run(gloveInit, feed_dict={glovePlaceholder: gloveEmbeddings})
+                #calculate hashtag embeddings if needed
+                try:
+                    print("Attempting to load saved embeddings")
+                    saver.restore(sess, self.filenames['embeddings'])
+                except Exception as e:
+                    print("Embedding {} most common hashtags".format(self.numHashtags))
+                    #calculate operation
+                    hashtagEmbeddings = tf.stack([self.trainHashtag(h) for h in self.hashtags[:self.numHashtags]])
+                    tweetEmbeddings = tf.stack([self.tweetEmbedding(t) for t in self.tweets[:self.numTweets]])
+                    #execute and store to proper tensors
+                    sess.run(self.hashtagEmbeddings.assign(hashtagEmbeddings))
+                    sess.run(self.tweetEmbeddings.assign(tweetEmbeddings))
+                    #save checkpoint
+                    save_path = saver.save(sess, self.filenames['embeddings'])
+                    print("Embeddings saved to {}".format(save_path))
+                #save np arrays for use in other scripts
+                self.finishedHTEmbeddings = self.hashtagEmbeddings.eval(session=sess)
+                self.finishedTweetEmbeddings = self.tweetEmbeddings.eval(session=sess)
 
     def tweetEmbedding(self, tweet):
         if tweet.embedding == None:
@@ -47,5 +65,28 @@ class BaselineModel(object):
         tweets = self.hashtagMap[hashtag]
         tweet_embeddings = tf.stack([self.tweetEmbedding(t) for t in tweets])
         return tf.reduce_mean(tweet_embeddings, 0)
-    #feed embeddings through covnet and feed forward
-    #backprop to predict hashtags
+
+    def inference(self, embeddingPlaceholder):
+        with tf.name_scope('hidden1'):
+            weights = tf.Variable(tf.truncated_normal([self.embeddingDim, self.hiddenLayerNodes]), name='weights')
+            biases = tf.Variable(tf.zeros([self.hiddenLayerNodes]), name='biases')
+            hidden1 = tf.nn.relu(tf.matmul(embeddingPlaceholder, weights) + biases)
+        with tf.name_scope('hidden2'):
+            weights = tf.Variable(tf.truncated_normal([self.hiddenLayerNodes, self.hiddenLayerNodes]), name='weights')
+            biases = tf.Variable(tf.zeros([self.hiddenLayerNodes]), name='biases')
+            hidden2 = tf.nn.relu(tf.matmul(hidden1, weights) + biases)
+        with tf.name_scope('softmax'):
+            weights = tf.Variable(tf.truncated_normal([self.hiddenLayerNodes, self.embeddingDim]), name='weights')
+            biases = tf.Variable(tf.zeros([self.embeddingDim]), name='biases')
+            prediction = tf.matmul(hidden2, weights) + biases
+        return prediction
+
+    def loss(self, prediction, actual):
+        #euclidean distance in the correct amount of dimensions
+        return tf.sqrt(tf.add(tf.square(prediction - actual)), name='euclideanDistance')
+
+    def train(self, loss, learningRate):
+        train_opt = tf.train.GradientDescentOptimizer(learningRate)
+        global_step = tf.Variable(0, name='global_step', trainable=False)
+        train_operation = train_opt.minimize(loss, global_step=global_step)
+        return train_operation

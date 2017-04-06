@@ -20,17 +20,26 @@ class Hashtag(object):
         # ensures we only keep the first, primary instance
         self = Hashtag.hashtag_map[self.hashtag]
 class Tweet(object):
+    #TODO add dict pointing back to associated Hashtags
+    #TODO add way to map all tweets to their embeddings
     def __init__(self, text):
         self.text = text
         self.embedding = None
+        self.hashtags = None
+    def registerHashtag(hashtag):
+        if self.hashtags == None:
+            self.hashtags = [hashtag]
+        else:
+            self.hashtags.add(hashtag)
     def __repr__(self):
         return self.text
 
 class TwitterJSONParse(object):
     def __init__(self, jsontxt, numTweets):
         self.numTweets  = numTweets
+        jsontxt_sized = jsontxt.readlines()[:numTweets]
         self.progress_init("Parsing text into JSON Object")
-        self.tweetJSONObjs = [self.progress(json.loads(line)) for line in jsontxt]
+        self.tweetJSONObjs = [self.progress(json.loads(line)) for line in jsontxt_sized]
     def progress_init(self, message):
         self.progress_n = 0.
         self.progress_step = 100./self.numTweets
@@ -59,7 +68,7 @@ class TwitterJSONParse(object):
             return tweetObj, hashtags
         # used for progress indicator
         self.progress_init("Formatting and extracting hashtags")
-        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetJSONObjs[:self.numTweets]]
+        formattedTweets = [self.progress(extractText(obj)) for obj in self.tweetJSONObjs]
         filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if (hashtags != [] and tweet.text != "")]
         # package up for retur
         tweets, hashtags = zip(*filteredTweets)
@@ -86,7 +95,7 @@ def main():
     gloveSize = 1193514
     embeddingDim = 25 # must match up with glove
     numHashtags = 1000 # num most common hashtags to embed
-    numHashtags_print = 100 # used in test and debug methods
+    numHashtags_print = 50 # used in test and debug methods
 
     json = open(testFile)
     # json = tw_download.getTweets("shishirtandale", 1000)
@@ -106,7 +115,7 @@ def main():
     blm = bm.BaselineModel(tweets, justHashtagsSorted, hashtag_map, glove25, gloveSize, glove_lookup, vocabSize, embeddingDim, numHashtags)
 
     print("Initialization finished, collecting results")
-    tsne_wv, tsne_vocab = blm.hashtagEmbeddings, justHashtagsSorted[:numHashtags]
+    tsne_wv, tsne_vocab = blm.finishedHTEmbeddings, justHashtagsSorted[:numHashtags]
     print("Sample Embedding: {} => {}".format(tsne_vocab[0], tsne_wv[0]))
 
 if __name__ == "__main__":
