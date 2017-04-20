@@ -2,10 +2,9 @@
 import tensorflow as tf, numpy as np, os.path, time
 
 class BaselineModel(object):
-    def __init__(self, tweets, hashtags, hashtagMap, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags):
+    def __init__(self, tweets, hashtags, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags, tweet_embedding_map, hashtag_embedding_map, tweet_hashtag_map, hashtag_tweet_map, tweet_text_map, hashtag_text_map, tweet_id_map, hashtag_id_map):
         self.tweets = tweets
         self.hashtags = hashtags
-        self.hashtagMap = hashtagMap
         self.numHashtags = numHashtags
         self.numTweets = len(tweets)
         self.embeddingDim = embeddingDim
@@ -14,8 +13,17 @@ class BaselineModel(object):
         self.wordMap = wordMap
         self.batchSize = 16
         self.learningRate = 0.001
-        self.iter = 1000
+        self.iter = 10000
         self.filenames = {'embeddings':'/tmp/twitternlp_embeddings'}
+
+        self.tweet_embedding_map = tweet_embedding_map
+        self.hashtag_embedding_map = hashtag_embedding_map
+        self.tweet_hashtag_map = tweet_hashtag_map
+        self.hashtag_tweet_map = hashtag_tweet_map
+        self.tweet_text_map = tweet_text_map
+        self.hashtag_text_map = hashtag_text_map
+        self.tweet_id_map = tweet_id_map
+        self.hashtag_id_map = hashtag_id_map
 
         # Create graph
         with tf.Graph().as_default():
@@ -38,32 +46,35 @@ class BaselineModel(object):
             with tf.Session() as sess:
                 sess.run(init_op)
                 sess.run(gloveInit, feed_dict={glovePlaceholder: gloveEmbeddings})
-            #TODO find way to associate tweet/hashtag with a unique row_id
-                #calculate hashtag embeddings if needed
-            #    try:
-            #        print("Attempting to load saved embeddings")
-            #        saver.restore(sess, self.filenames['embeddings'])
-            #    except Exception as e:
-                print("Embedding {} most common hashtags".format(self.numHashtags))
-                #calculate operation
-                hashtagEmbeddings = tf.stack([self.trainHashtag(h, sess) for h in self.hashtags[:self.numHashtags]])
-                tweetEmbeddings = tf.stack([self.tweetEmbedding(t, sess) for t in self.tweets[:self.numTweets]])
-                #execute and store to proper tensors
-                sess.run(self.hashtagEmbeddings.assign(hashtagEmbeddings))
-                sess.run(self.tweetEmbeddings.assign(tweetEmbeddings))
-                #save checkpoint
-                save_path = saver.save(sess, self.filenames['embeddings'])
-                print("Embeddings saved to {}".format(save_path))
-                #save np arrays for use in other scripts
+                try:
+                    print("Attempting to load saved embeddings")
+                    saver.restore(sess, self.filenames['embeddings'])
+                except Exception as e:
+                    print("Embedding {} most common hashtags".format(self.numHashtags))
+                    #calculate operation
+                    tweetEmbeddings = tf.stack([self.tweetEmbedding(t, i) for i, t in enumerate(self.tweets[:self.numTweets])])
+                    hashtagEmbeddings = tf.stack([self.trainHashtag(h, i) for i, h in enumerate(self.hashtags[:self.numHashtags])])
+                    #execute and store to proper tensors
+                    print("Evaluating embedding tensors")
+                    sess.run(self.hashtagEmbeddings.assign(hashtagEmbeddings))
+                    sess.run(self.tweetEmbeddings.assign(tweetEmbeddings))
+                    #save checkpoint
+                    save_path = saver.save(sess, self.filenames['embeddings'])
+                    print("Embeddings saved to {}".format(save_path))
+                    #save np arrays for use in other scripts
+                #TODO optimize
                 self.finishedHTEmbeddings = self.hashtagEmbeddings.eval(session=sess)
                 self.finishedTweetEmbeddings = self.tweetEmbeddings.eval(session=sess)
 
                 print("Collecting tweets and hashtags for training")
-                tw_ht = [(hashtagMap[hashtag], hashtag.embedding) for hashtag in self.hashtags[:self.numHashtags]]
+                tw_ht = [(row_num, self.hashtag_tweet_map[hashtag.id], hashtag.id) for row_num, hashtag in enumerate(self.hashtags[:self.numHashtags])]
                 io_pairs = []
-                for tweets, ht_embed in tw_ht:
-                    io_pairs.extend([(t.embedding, ht_embed) for t in tweets])
+                for row_num, tweet_ids, ht_id in tw_ht:
+                    ht_embed = self.finishedHTEmbeddings[row_num]
+                    #TODO see if there's a better way to do this
+                    io_pairs.extend([(self.finishedTweetEmbeddings[self.tweet_embedding_map.get(t, 0)], ht_embed) for t in tweet_ids])
                 def feed_io_pairs(io_pairs, num_pairs):
+                    #TODO handle uneven number of pairs
                     t = io_pairs[:num_pairs]
                     io_pairs = io_pairs[num_pairs:]
                     return t
@@ -71,10 +82,11 @@ class BaselineModel(object):
                 for iteration in range(self.iter):
                     start_time = time.time()
                     tweet_embeds, ht_embeds = zip(*feed_io_pairs(io_pairs, self.batchSize))
+                    tweet_embeds, ht_embeds = np.stack(tweet_embeds), np.stack(ht_embeds)
                     #print(tweet_embeds, ht_embeds)
                     feed_dict = {
-                        tweetinput_placeholder: np.stack(tweet_embeds),
-                        hashtag_placeholder: np.stack(ht_embeds)
+                        tweetinput_placeholder: tweet_embeds,
+                        hashtag_placeholder: ht_embeds
                     }
                     _, loss_value = sess.run(nn_train_op, feed_dict=feed_dict)
                     duration = time.time() - start_time
@@ -82,22 +94,26 @@ class BaselineModel(object):
                     if iteration % 100 == 0:
                         print("Step {}: loss = {}, {} sec".format(iteration, loss_value, duration))
 
-    def tweetEmbedding(self, tweet, sess):
-        if tweet.embedding == None:
+    def tweetEmbedding(self, tweet, tw_id=None):
+        if tweet.embedding is None:
             word_ids = [self.wordMap[word] for word in tweet.text.split() if word in self.wordMap.keys()]
             if word_ids == []:
-                return tf.zeros((25))
+                return tf.zeros((self.embeddingDim))
             embedded_words = tf.nn.embedding_lookup(self.wordEmbeddings, word_ids)
             # just average together glove embeddings
             # TODO: improve with TF_IDF: http://stackoverflow.com/questions/29760935/how-to-get-vector-for-a-sentence-from-the-word2vec-of-tokens-in-sentence
-            tweet.embedding = sess.run(tf.reduce_mean(embedded_words, 0))
+            tweet.embedding = tf.reduce_mean(embedded_words, 0)
+        if tw_id is not None and tweet.id not in tweet_embedding_map:
+            self.tweet_embedding_map[tweet.id] = tw_id
         return tweet.embedding
 
-    def trainHashtag(self, hashtag, sess):
-        if hashtag.embedding == None:
-            tweets = self.hashtagMap[hashtag]
-            tweet_embeddings = tf.stack([self.tweetEmbedding(t, sess) for t in tweets])
-            hashtag.embedding = sess.run(tf.reduce_mean(tweet_embeddings, 0))
+    def trainHashtag(self, hashtag, ht_id=None):
+        if hashtag.embedding is None:
+            tweets = [self.tweet_id_map[t_id] for t_id in self.hashtag_tweet_map[hashtag.id]]
+            tweet_embeddings = tf.stack([self.tweetEmbedding(t) for t in tweets])
+            hashtag.embedding = tf.reduce_mean(tweet_embeddings, 0)
+        if ht_id is not None and hashtag.id not in hashtag_embedding_map:
+            self.hashtag_embedding_map[hashtag.id] = ht_id
         return hashtag.embedding
 
     def inference(self, tweets):
