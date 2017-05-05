@@ -1,7 +1,6 @@
 # Shishir Tandale
 import json, re, sys, numpy as np
-import baseline_model as bm
-# import tw_download
+from models import baseline_model as bm, lstm_model as lm
 
 tweet_embedding_map = {}
 hashtag_embedding_map = {}
