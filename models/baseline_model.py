@@ -1,8 +1,11 @@
 # Shishir Tandale
 import tensorflow as tf, numpy as np, os.path, time
 
+from utils.progress import Progress
+from utils.twitter_json import Hashtag, Tweet, TwitterJSONParse
+
 class BaselineModel(object):
-    def __init__(self, tweets, hashtags, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags, tweet_embedding_map, hashtag_embedding_map, tweet_hashtag_map, hashtag_tweet_map, tweet_text_map, hashtag_text_map, tweet_id_map, hashtag_id_map):
+    def __init__(self, tweets, hashtags, gloveEmbeddings, gloveSize, wordMap, vocabSize, embeddingDim, numHashtags, tjp):
         self.tweets = tweets
         self.hashtags = hashtags
         self.numHashtags = numHashtags
@@ -15,15 +18,10 @@ class BaselineModel(object):
         self.learningRate = 0.001
         self.iter = 10000
         self.filenames = {'embeddings':'/tmp/twitternlp_embeddings'}
+        self.tjp = tjp
 
-        self.tweet_embedding_map = tweet_embedding_map
-        self.hashtag_embedding_map = hashtag_embedding_map
-        self.tweet_hashtag_map = tweet_hashtag_map
-        self.hashtag_tweet_map = hashtag_tweet_map
-        self.tweet_text_map = tweet_text_map
-        self.hashtag_text_map = hashtag_text_map
-        self.tweet_id_map = tweet_id_map
-        self.hashtag_id_map = hashtag_id_map
+        (self.tweet_embedding_map, self.hashtag_embedding_map, self.tweet_hashtag_map, self.hashtag_tweet_map, \
+            self.tweet_text_map, self.hashtag_text_map, self.tweet_id_map, self.hashtag_id_map) = self.tjp.dicts
 
         # Create graph
         with tf.Graph().as_default():
@@ -103,7 +101,7 @@ class BaselineModel(object):
             # just average together glove embeddings
             # TODO: improve with TF_IDF: http://stackoverflow.com/questions/29760935/how-to-get-vector-for-a-sentence-from-the-word2vec-of-tokens-in-sentence
             tweet.embedding = tf.reduce_mean(embedded_words, 0)
-        if tw_id is not None and tweet.id not in tweet_embedding_map:
+        if tw_id is not None and tweet.id not in self.tweet_embedding_map:
             self.tweet_embedding_map[tweet.id] = tw_id
         return tweet.embedding
 
