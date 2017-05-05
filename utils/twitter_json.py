@@ -1,125 +1,107 @@
 # Shishir Tandale
 import json, re, sys
-from utils.progress import Progress
+from utils.reverse_dict import Symmetric_Dictionary as sdict
 
-class Hashtag(object):
-    current_idi = 0
-
-    @property
-    def hashtag_text_map(self):
-        if self._hashtag_text_map is None:
-            self._hashtag_text_map = {}
-        return self._hashtag_text_map
-    @property
-    def hashtag_id_map(self):
-        if self._hashtag_id_map is None:
-            self._hashtag_id_map = {}
-        return self._hashtag_id_map
-
-    def __init__(self, hashtag_text):
-        if hashtag_text not in self.hashtag_text_map:
-            self.text = hashtag_text
-            self.embedding = None
-            self.id = Hashtag.current_id()
-            self.hashtag_text_map[hashtag_text] = self
-            self.hashtag_id_map[self.id] = self
+class TwitterProperty(object):
+    idi = 0
+    _store = sdict() #supports reversibility
+    _set = set()
+    def __init__(self):
+        #ensures self points to the latest version of this object
+        self = TwitterProperty.register(self)
+    @classmethod
+    def register(cls, ref):
+        #see if ref has been encountered before, if so, return that reference
+        if hash(ref) not in cls._store:
+            cls.idi += 1
+            index = cls.idi
+            cls._store[hash(ref)] = (ref, index)
+            ref.index = index
         else:
-            self = hashtag_text_map[hashtag_text]
-    def __hash__(self):
-        return hash(self.__repr__())
-    def __eq__(self, other):
-        return self.text == other.text
-    def __repr__(self):
-        return self.text
-    def __lt__(self, other):
-        return self.__repr__() < other.__repr__()
-    @staticmethod
-    def getHashtag(text):
-        if text not in hashtag_text_map:
-            hashtagObj = Hashtag(text)
-            hashtag_text_map[text] = hashtagObj
-            return hashtagObj
-        else:
-            return hashtag_text_map[text]
-    @staticmethod
-    def assocHashtag(text, tweetObj):
-        hashtag = Hashtag.getHashtag(text)
-        hashtag.add_link(tweetObj)
-        tweetObj.add_link(hashtag)
-        return hashtag
-    @staticmethod
-    def current_id():
-        Hashtag.current_idi += 1
-        return Hashtag.current_idi-1
-    def add_link(self, tweet_obj):
-        if self.id in hashtag_tweet_map:
-            hashtag_tweet_map[self.id].append(tweet_obj.id)
-        else:
-            hashtag_tweet_map[self.id] = [tweet_obj.id]
-class Tweet(object):
-    current_idi = 0
-    @property
-    def tweet_id_map(self):
-        if self._tweet_id_map is None:
-            self._tweet_id_map = {}
-        return self._tweet_id_map
-    def __init__(self, text):
-        self.text = text
+            ref, _ = cls._store[hash(ref)]
+        if ref not in cls.set(): #make sure our data structs are updated
+            cls.set().add(ref)
+        return ref
+    @classmethod
+    def set(cls):
+        return cls._set
+class User(TwitterProperty):
+    _set = set() #required for User's own _set
+    def __init__(self, username, tweets=None):
+        self.username = username
+        self.tweets = tweets
         self.embedding = None
-        self.id = Tweet.current_id()
-        tweet_id_map[self.id] = self
+        self = User.register(self)
     @staticmethod
-    def getTweet(text):
-        if text not in tweet_text_map:
-            tweetObj = Tweet(text)
-            tweet_text_map[text] = tweetObj
-            return tweetObj
-        else:
-            return tweet_text_map[text]
+    def get_user(id):
+        return User.get_property(id)
+    def __str__(self):
+        return self.username
+    def __hash__(self):
+        return hash(str(self))
+class Hashtag(TwitterProperty):
+    _set = set() #required for Hashtag's own _set
+    def __init__(self, hashtag, tweets=[]):
+        self.text = hashtag
+        self.popularity = 0
+        self.embedding = None
+        self.parent_tweets = []
+        self = Hashtag.register(self)
+        #add to probability after retrieving latest copy
+        self.popularity += 1
     @staticmethod
-    def current_id():
-        Tweet.current_idi += 1
-        return Tweet.current_idi - 1
-    def add_link(self, hashtag_obj):
-        if self.id in tweet_hashtag_map:
-            tweet_hashtag_map[self.id].append(hashtag_obj.id)
-        else:
-            tweet_hashtag_map[self.id] = [hashtag_obj.id]
-
+    def get_hashtag(id):
+        return Hashtag.get_property(id)
+    def __str__(self):
+        return self.text
+    def __hash__(self):
+        return hash(str(self))
+    #use hashtag popularity as metric for comparison
+    def __lt__(self, ot):
+        return self.popularity < ot.popularity
+class Tweet(TwitterProperty):
+    _set = set() #required for Tweet's own _set
+    def __init__(self, text, hashtags=None):
+        self.text = text
+        self.hashtags = hashtags
+        self.embedding = None
+        self = Tweet.register(self)
+    @staticmethod
+    def get_tweet(id):
+        return Tweet.get_property(id)
+    def __str__(self):
+        return self.text #modify to include hashtags
+    def __hash__(self):
+        return hash(str(self))
+    def has_hashtags(self):
+        return len(self.hashtags) > 0
+    def has_text(self):
+        return str(self) is not None and len(str(self)) > 0
 class TwitterJSONParse(object):
-    def __init__(self, jsontxt, numTweets):
-        self.tweet_embedding_map = {}
-        self.hashtag_embedding_map = {}
-        self.tweet_hashtag_map = {}
-        self.hashtag_tweet_map = {}
-        self.tweet_text_map = {}
-        self.hashtag_text_map = {}
-        self.tweet_id_map = {}
-        self.hashtag_id_map = {}
-        self.dicts = (self.tweet_embedding_map, self.hashtag_embedding_map, self.tweet_hashtag_map, self.hashtag_tweet_map, \
-            self.tweet_text_map, self.hashtag_text_map, self.tweet_id_map, self.hashtag_id_map)
-
-        self.numTweets  = numTweets
-        jsontxt_sized = jsontxt.readlines()[:numTweets]
-        with Progress("Parsing text into JSON Object", count=numTweets) as (update,_,_):
-            self.tweetJSONObjs = [update(json.loads(line)) for line in jsontxt_sized]
-    def parseJSON(self):
+    def __init__(self, jsontxt, num_tweets, show_progress=True):
+        self.num_tweets  = num_tweets
+        self.show_progress = show_progress
+        jsontxt_resized = jsontxt.readlines()[:num_tweets]
+        if self.show_progress:
+            from utils.progress import Progress
+            with Progress("Parsing text into JSON Object", count=num_tweets, precision=2) as (u,_,_):
+                self.tweet_JSON_objs = [u(json.loads(line)) for line in jsontxt_resized]
+        else:
+            self.tweet_JSON_objs = [json.loads(line) for line in jsontxt_resized]
+    def process_tweets(self):
         # for more documentation, visit:
         # https://dev.twitter.com/overview/api/tweets
-        # only saves useful tweets and hashtags for embeddings
-        def extractText(tweet):
+        def extract_text(tweet_json):
             r_hashtag = "([#].*)"
             r_twlink = "(http://t[.]co.*)"
             # remove all hashtags and twitter links from text
-            text = re.sub(r_hashtag, "<hashtag>", tweet["text"].lower())
-            text = re.sub(r_twlink, "<url>", text)
-            tweetObj = Tweet(text)
-            hashtags = [Hashtag.assocHashtag(h["text"].lower(), tweetObj) for h in tweet["entities"]["hashtags"]]
-            return tweetObj, hashtags
-        # used for progress indicator
-        print("Formatting and extracting hashtags")
-        formattedTweets = [extractText(obj) for obj in self.tweetJSONObjs]
-        filteredTweets = [(tweet, hashtags) for (tweet, hashtags) in formattedTweets if (hashtags != [] and tweet.text != "")]
-        # package up for return
-        tweets, hashtags = zip(*filteredTweets)
-        return tweets, hashtags
+            tweet_text = re.sub(r_hashtag, "<hashtag>", tweet_json["text"].lower())
+            tweet_text = re.sub(r_twlink, "<url>", tweet_text)
+            hashtags = [(Hashtag(h["text"].lower())) for h in tweet_json["entities"]["hashtags"]]
+            tweet_obj = Tweet(tweet_text, hashtags)
+            for tag in hashtags: tag.parent_tweets.append(tweet_obj)
+            return tweet_obj
+        #TODO add progress
+        for obj in self.tweet_JSON_objs:
+            extract_text(obj)
+        print("Tweets extracted.")
