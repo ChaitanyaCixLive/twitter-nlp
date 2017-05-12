@@ -32,9 +32,6 @@ class User(TwitterProperty):
         self.tweets = tweets
         self.embedding = None
         self = User.register(self)
-    @staticmethod
-    def get_user(id):
-        return User.get_property(id)
     def __str__(self):
         return self.username
     def __hash__(self):
@@ -47,11 +44,8 @@ class Hashtag(TwitterProperty):
         self.embedding = None
         self.parent_tweets = []
         self = Hashtag.register(self)
-        #add to probability after retrieving latest copy
+        #add to popularity after retrieving latest copy
         self.popularity += 1
-    @staticmethod
-    def get_hashtag(id):
-        return Hashtag.get_property(id)
     def __str__(self):
         return self.text
     def __hash__(self):
@@ -66,9 +60,6 @@ class Tweet(TwitterProperty):
         self.hashtags = hashtags
         self.embedding = None
         self = Tweet.register(self)
-    @staticmethod
-    def get_tweet(id):
-        return Tweet.get_property(id)
     def __str__(self):
         return self.text #modify to include hashtags
     def __hash__(self):
@@ -87,6 +78,7 @@ class TwitterJSONParse(object):
             with Progress("Parsing text into JSON Object", count=num_tweets, precision=2) as (u,_,_):
                 self.tweet_JSON_objs = [u(json.loads(line)) for line in jsontxt_resized]
         else:
+            print("Parsing text into JSON Object")
             self.tweet_JSON_objs = [json.loads(line) for line in jsontxt_resized]
     def process_tweets(self):
         # for more documentation, visit:

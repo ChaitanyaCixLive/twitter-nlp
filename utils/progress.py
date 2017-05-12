@@ -1,5 +1,6 @@
 # Shishir Tandale
 class Progress(object):
+    #TODO rewrite so you don't use as many floating point ops for speed
     def __init__(self, message="Progress", count=100, precision=3):
         self.message = message
         self.size = count

@@ -1,5 +1,3 @@
-from argparse import ArgumentParser
-from utils.progress import Progress
 import tweepy, json
 
 class TweepyClient(object):
@@ -23,6 +21,8 @@ class TweepyClient(object):
 			self.retrieve(user, num_tweets-200, self.tweets[-1].id-1)
 
 if __name__ == "__main__":
+	from argparse import ArgumentParser
+	from utils.progress import Progress
 	parser = ArgumentParser()
 	parser.add_argument('--user', default='UddiptoDutta')
 	parser.add_argument('--count', type=int, default=1000)
