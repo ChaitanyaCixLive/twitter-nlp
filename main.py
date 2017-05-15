@@ -1,73 +1,88 @@
 # Shishir Tandale
 import numpy as np
-import tensorflow as tf
 
-from collections import defaultdict
+from utils.twitter_json import Tweet, Hashtag, User, Twitter_JSON_Parse
+from utils.embeddings import Embedder
+from models.baseline_model import Baseline_Model
+from models.hybrid_vae_model import Hybrid_VAE_Model
 
-from utils.progress import Progress
-from utils.twitter_json import Tweet, Hashtag, User, TwitterJSONParse
-from utils.twitter_download import TweepyClient
-from models.baseline_model import Baseline_Model as Baseline
-from models.hybrid_vae_model import Hybrid_VAE_Model as VAE
-
-def loadGlove(embeddingFile, gloveSize, gloveDim):
-    import tensorflow as tf
-    lookup = defaultdict(lambda: -1, {})
-    counter = 0
-    glove = np.zeros((gloveSize, gloveDim))
-    with open(embeddingFile, "r") as ef: #Progress("Loading Glove Embeddings", count=gloveSize) as (u,_,_):
-            for line_num, line in enumerate(ef):
-                word, *embeddingVector = line.split(' ')
-                lookup[word] = line_num
-                glove[line_num] = [float(i) for i in embeddingVector]
+def load_glove(glove_file, glove_shape):
+    from collections import defaultdict
+    lookup = defaultdict(lambda: -1, dict())
+    glove = np.zeros(glove_shape)
+    with open(glove_file, "r") as ef:
+        for line_num, line in enumerate(ef):
+            word, *embedding_vector = line.split(' ')
+            lookup[word] = line_num
+            glove[line_num] = [float(i) for i in embedding_vector]
     return glove, lookup
 
-def main(vocab_size=100_000, num_hashtags=50, test_file = "../data/twitter-nlp/json/cache-0.json",\
-    num_hashtags_print=0):
+def main(num_tweets, num_hashtags, test_file, num_hashtags_print):
+    #Load glove embeddings into numpy array
     glove_file="../data/twitter-nlp/embeddings/glove.twitter.27B.25d.txt"
-    embedding_dim = 25
     glove_size = 1193514
+    embedding_dim = 25
+    glove_shape = (glove_size, embedding_dim)
+    print(f"Loading GloVe embeddings ({embedding_dim}).")
+    glove_params = load_glove(glove_file, glove_shape)
 
-    json = open(test_file)
-    twitter_parse = TwitterJSONParse(json, vocab_size, show_progress=False)
-    twitter_parse.process_tweets()
-    tweets, hashtags = list(Tweet.set()), list(Hashtag.set())
+    embedder = Embedder(glove_params)
+    #load json from test_file, parse with Twitter_JSON_Parse
+    json = open(test_file).readlines()[:num_tweets]
+    twitter_parse = Twitter_JSON_Parse(
+        json,
+        show_progress=False,
+        replace_hashtags=True,
+        replace_links=True,
+        replace_user_refs=True)
+    tweets, hashtags = list(Tweet.set), list(Hashtag.set)
     print(f"Num tweets: {len(tweets)}, Num unique hashtags: {len(hashtags)}.")
 
-    sorted_hts = sorted((hashtags))[-1::-1]
-    if num_hashtags_print > 0:
-        for ht in sorted_hts[:num_hashtags_print]:
-            print(ht, ht.popularity)
-    print(f"Loading GloVe embeddings ({embedding_dim}).")
-    glove25, glove_lookup = loadGlove(glove_file, glove_size, embedding_dim)
-    #print("Initializing BaselineModel")
-    #glove_params = (glove25, glove_size, glove_lookup)
-    #training_params = (vocab_size, embedding_dim, num_hashtags)
-    #blm = bm.BaselineModel(tweets, sorted_hts, glove_params, training_params)
+    #package params and initialize baseline model
+    print("Initializing Baseline Model.")
 
-    print("Encoding tweets for VAE.")
+    blm = Baseline_Model(tweets, hashtags, embedding_dim)
+    blm.create_embeddings(embedder)
+    blm.train_model(epochs=5)
+    sentences = [
+        "Remarks at the United States Holocaust Memorial Museum's National Days of Remembrance.",
+        "Today on Earth Day, we celebrate our beautiful forests, lakes and land. We stand committed to preserving the natural beauty of our nation.",
+        "So sad to hear of the terrorist attack in Egypt. U.S. strongly condemns. I have great...",
+        "Dems have been complaining for months & months about Dir. Comey. Now that he has been fired they PRETEND to be aggrieved. Phony hypocrites!"
+    ]
+    blm.predict(sentences, embedder)
+
+    """
+    #print("Encoding tweets for VAE.")
     #test encode some tweets
-    max_word_count = 128
+    character_count = 160
     batch_size = 20
     num_tweets = 20
-    #TODO encapsulate this into its own class
-    _x = [[glove_lookup[word] for word in tweet.text.split()] for tweet in tweets[:num_tweets]]
-    x = np.zeros((batch_size, max_word_count))
-    for row in range(num_tweets):
-        for i in range(len(_x[row])):
-            x[row, i] = _x[row][i]
-    x = tf.constant(x, dtype=tf.float32)
-
-    vae = VAE(word_count=max_word_count, batch_size=batch_size)
-    print("Building VAE.")
-    vae.build_graph(x)
+    np_x = map_tweets_to_lookup(tweets[:num_tweets], glove_lookup, character_count)
+    #x = tf.constant(np_x, dtype=tf.float32)
+    print(f\"""Example tweet mapping:\n
+            {tweets[0]}\t =>
+            {tweets[0].text}\t =>\n
+            {np_x[0]}
+            \""")
+    #build model and model graph
+    #vae = Hybrid_VAE_Model()
+    print("Building and training VAE.")
+    #vae.build_graph(x)
+    #vae.train()
+    """
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--vocab', type=int, default=100000)
+    parser.add_argument('--numtweets', type=int, default=100_000)
     parser.add_argument('-p', '--numprint', type=int, default=0)
     parser.add_argument('-a', '--hashtags', type=int, default=50)
     parser.add_argument('-t', '--testfile', default='../data/twitter-nlp/json/cache-0.json')
     args = parser.parse_args()
-    main(vocab_size=args.vocab, num_hashtags=args.hashtags, test_file=args.testfile, num_hashtags_print=args.numprint)
+    main(
+        args.numtweets,
+        args.hashtags,
+        args.testfile,
+        args.numprint
+    )
