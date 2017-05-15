@@ -18,23 +18,18 @@ def load_glove(glove_file, glove_shape):
     return glove, lookup
 
 def main(num_tweets, num_hashtags, test_file, num_hashtags_print):
-    #Load glove embeddings into numpy array
-    glove_file="../data/twitter-nlp/embeddings/glove.twitter.27B.25d.txt"
+    #Load glove embeddings into Embedder
     glove_size = 1193514
     embedding_dim = 25
     glove_shape = (glove_size, embedding_dim)
+    glove_file="../data/twitter-nlp/embeddings/glove.twitter.27B.25d.txt"
     print(f"Loading GloVe embeddings ({embedding_dim}).")
     glove_params = load_glove(glove_file, glove_shape)
-
     embedder = Embedder(glove_params)
+
     #load json from test_file, parse with Twitter_JSON_Parse
     json = open(test_file).readlines()[:num_tweets]
-    twitter_parse = Twitter_JSON_Parse(
-        json,
-        show_progress=False,
-        replace_hashtags=True,
-        replace_links=True,
-        replace_user_refs=True)
+    twitter_parse = Twitter_JSON_Parse(json)
     tweets, hashtags = list(Tweet.set), list(Hashtag.set)
     print(f"Num tweets: {len(tweets)}, Num unique hashtags: {len(hashtags)}.")
 

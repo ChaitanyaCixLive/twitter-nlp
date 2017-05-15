@@ -101,10 +101,7 @@ class Baseline_Model(object):
             #todo query all at once for speed
             dist, ind = tree.query(y[i].reshape(1, -1), k=num)
             predicted_hashtags = [f"#{str(hashtags[idh])}: {dist[0][idi]}" for idi,idh in enumerate(ind[0])]
-            print(f"""
-{sentence}
-{predicted_hashtags}
-            """)
+            print(f"\n{sentence}\n{predicted_hashtags}")
 
     def inference(self, tweets, num_hidden=2):
         last_layer = tweets

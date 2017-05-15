@@ -8,7 +8,7 @@ class Embedder(object):
         (self.glove_embeddings, self.glove_lookup) = glove_params
 
     def embed_tweets_hashtags(self, tweets, hashtags):
-        with Progress("Calculating hashtag and tweet embeddings", len(self.hashtags)+len(self.tweets)) as up:
+        with Progress("Calculating hashtag and tweet embeddings", len(hashtags)+len(tweets)) as up:
             [up(self.tweet_embedding(t)) for t in tweets]
             [up(self.hashtag_embedding(h)) for h in hashtags]
 
@@ -23,9 +23,8 @@ class Embedder(object):
 
     def tweet_embedding(self, tweet):
         if tweet.embedding is None:
-            embedded_words = [self.glove_embeddings[i] for i in tweet.word_ids]
             # TODO: improve with TF_IDF: http://stackoverflow.com/questions/29760935/how-to-get-vector-for-a-sentence-from-the-word2vec-of-tokens-in-sentence
-            tweet.embedding = np.average(embedded_words, 0)
+            tweet.embedding = self.embed_sentence(tweet.text)
         return tweet.embedding
 
     def hashtag_embedding(self, hashtag):
