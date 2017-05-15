@@ -1,7 +1,11 @@
 # Shishir Tandale
-import numpy as np
 
-from utils.twitter_json import Tweet, Hashtag, User, Twitter_JSON_Parse
+import numpy as np, json
+
+from utils.twitter.objects import Tweet, User, Hashtag
+from utils.twitter.json import Twitter_JSON_Parse
+from utils.twitter.tokenizer import Tweet_Tokenizer
+from utils.twitter.tweepy import Tweepy_Client, Tweepy_Stream_Saver
 from utils.embeddings import Embedder
 from models.baseline_model import Baseline_Model
 from models.hybrid_vae_model import Hybrid_VAE_Model
@@ -17,7 +21,7 @@ def load_glove(glove_file, glove_shape):
             glove[line_num] = [float(i) for i in embedding_vector]
     return glove, lookup
 
-def main(num_tweets, num_hashtags, test_file, num_hashtags_print):
+def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epochs, batch_size):
     #Load glove embeddings into Embedder
     glove_size = 1193514
     embedding_dim = 25
@@ -28,49 +32,56 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print):
     embedder = Embedder(glove_params)
 
     #load json from test_file, parse with Twitter_JSON_Parse
-    json = open(test_file).readlines()[:num_tweets]
-    twitter_parse = Twitter_JSON_Parse(json)
+    #json = open(test_file).readlines()[:num_tweets]
+    #print(f"Downloading {num_tweets} new tweets.")
+    #client = Tweepy_Client()
+    #tss = Tweepy_Stream_Saver(max_count = num_tweets)
+    #client.start_stream("the", tss)
+    #client.retrieve(username, num_tweets)
+    json_text = open(test_file).readlines()[:num_tweets] #tss.buffer #[json.dumps(tweet._json) for tweet in client.tweets]
+    #print(json)
+
+    #parse json
+    twitter_parse = Twitter_JSON_Parse(json_text)
     tweets, hashtags = list(Tweet.set), list(Hashtag.set)
     print(f"Num tweets: {len(tweets)}, Num unique hashtags: {len(hashtags)}.")
 
     #package params and initialize baseline model
-    print("Initializing Baseline Model.")
-
-    blm = Baseline_Model(tweets, hashtags, embedding_dim)
-    blm.create_embeddings(embedder)
-    blm.train_model(epochs=5)
+    #print("Initializing Baseline Model.")
+    #blm = Baseline_Model(tweets, hashtags, embedding_dim, epochs, batch_size)
+    #blm.create_embeddings(embedder)
+    #blm.train_model()
+    #sentences = [t.orig_text for t in tweets[:6]]
     sentences = [
-        "Remarks at the United States Holocaust Memorial Museum's National Days of Remembrance.",
-        "Today on Earth Day, we celebrate our beautiful forests, lakes and land. We stand committed to preserving the natural beauty of our nation.",
-        "So sad to hear of the terrorist attack in Egypt. U.S. strongly condemns. I have great...",
-        "Dems have been complaining for months & months about Dir. Comey. Now that he has been fired they PRETEND to be aggrieved. Phony hypocrites!"
+        "Do Offred and the Commander actually know the rules of Scrabble?",
+        "Sunday shows struggle to book anyone willing to speak on behalf of Donald Trump",
+        "The Democrats, without a leader, have become the party of obstruction.They are only interested in themselves and not in what's best for U.S.",
+        "TRUMP,  when will you understand that I am not paying for that fucken wall. Be clear with US tax payers. They will pay for it."
     ]
-    blm.predict(sentences, embedder)
+    #blm.predict(sentences, embedder)
 
-    """
-    #print("Encoding tweets for VAE.")
+
+    print("Encoding tweets for VAE.")
     #test encode some tweets
     character_count = 160
-    batch_size = 20
-    num_tweets = 20
-    np_x = map_tweets_to_lookup(tweets[:num_tweets], glove_lookup, character_count)
-    #x = tf.constant(np_x, dtype=tf.float32)
-    print(f\"""Example tweet mapping:\n
-            {tweets[0]}\t =>
-            {tweets[0].text}\t =>\n
-            {np_x[0]}
-            \""")
+    batch_size = batch_size
+    char_map, tweet_str = Tweet_Tokenizer.build_character_map(
+                                    tweets, batch_size=character_count)
+    tweet_np = np.array(tweet_str)
     #build model and model graph
-    #vae = Hybrid_VAE_Model()
-    print("Building and training VAE.")
-    #vae.build_graph(x)
-    #vae.train()
-    """
+    vae = Hybrid_VAE_Model(tweet_np, character_count=character_count, batch_size=batch_size, epochs=epochs)
+    vae.train()
+    for line in vae.random_sample(batch_size):
+        print(Tweet_Tokenizer.parse_character_map(line, char_map))
+
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--numtweets', type=int, default=100_000)
+    parser.add_argument('--username', default='realDonaldTrump')
+    parser.add_argument('--epochs', type=int, default=15)
+    parser.add_argument('--batchsize', type=int, default=25)
     parser.add_argument('-p', '--numprint', type=int, default=0)
     parser.add_argument('-a', '--hashtags', type=int, default=50)
     parser.add_argument('-t', '--testfile', default='../data/twitter-nlp/json/cache-0.json')
@@ -79,5 +90,8 @@ if __name__ == "__main__":
         args.numtweets,
         args.hashtags,
         args.testfile,
-        args.numprint
+        args.numprint,
+        args.username,
+        args.epochs,
+        args.batchsize
     )

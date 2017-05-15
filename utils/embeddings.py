@@ -1,11 +1,13 @@
 # Shishir Tandale
 
 import numpy as np
+from sklearn.neighbors import BallTree
 from utils.progress import Progress
 
 class Embedder(object):
     def __init__(self, glove_params):
         (self.glove_embeddings, self.glove_lookup) = glove_params
+        self.word_embedding_search_tree = BallTree(self.glove_embeddings, leaf_size=5000)
 
     def embed_tweets_hashtags(self, tweets, hashtags):
         with Progress("Calculating hashtag and tweet embeddings", len(hashtags)+len(tweets)) as up:

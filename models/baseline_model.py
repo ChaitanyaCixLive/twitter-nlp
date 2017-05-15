@@ -1,15 +1,14 @@
 # Shishir Tandale
+
 import tensorflow as tf, numpy as np
 import pickle, sys, os
 
 from sklearn.neighbors import BallTree
-
 from utils.progress import Progress
-from utils.twitter_json import Hashtag, Tweet, User
 from utils.embeddings import Embedder
 
 class Baseline_Model(object):
-    def __init__(self, tweets, hashtags, embedding_dim):
+    def __init__(self, tweets, hashtags, embedding_dim, epochs, batch_size):
         self.embedding_dim = embedding_dim
         self.tweets = tweets
         self.hashtags = hashtags
@@ -17,8 +16,9 @@ class Baseline_Model(object):
         self.embedding_file_name = "embedded_hashtags_tweets.p"
         self.ckpt_file_name = "./baseline_model.ckpt"
         self.hidden_layer_nodes = self.embedding_dim*2
-        self.batch_size = 25
-        self.learning_rate = 0.001
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.learning_rate = 0.0001
         self.sess = tf.Session()
 
         #input and output vars
@@ -43,14 +43,14 @@ class Baseline_Model(object):
         #build BallTree to allow for nearest neighbor searches on hashtag embeddings
         self.hashtag_search_tree = BallTree(self.hashtag_embeddings, leaf_size=40)
         #save calculated embeddings for prediction
-        sys.setrecursionlimit(10_000)
+        sys.setrecursionlimit(30_000)
         pickle.dump(
             [self.hashtag_cache, self.hashtag_search_tree],
             open(self.embedding_file_name, "wb"))
         print(f"Saved calculated embeddings to {self.embedding_file_name}.")
         self.embeddings_ready = True
 
-    def train_model(self, epochs=5):
+    def train_model(self):
         from time import time
         tweets, hashtags = self.tweet_embeddings, self.hashtag_embeddings
         batches = int(len(tweets)/self.batch_size)
@@ -61,14 +61,14 @@ class Baseline_Model(object):
                 pointer += self.batch_size
                 return tweet_batch, hashtag_batch
             else:
-                raise tf.errors.OutOfRangeError
-        print(f"Training baseline model for {epochs+1} epochs ({batches} batches each)")
+                raise IndexError
+        print(f"Training baseline model for {self.epochs} epochs ({batches} batches each)")
         with self.sess.as_default():
             self.sess.run(self.init_op)
             try:
-                for e in range(epochs):
+                for e in range(self.epochs):
                     pointer = 0 #reset batch pointer
-                    for b in range(batches*2):
+                    for b in range(batches):
                         start_time = time()
                         tweet_batch, hashtag_batch = next_batch(pointer)
                         _, loss_value = self.sess.run(
@@ -85,12 +85,13 @@ class Baseline_Model(object):
                     print(f"Model saved in file {save_path}")
             except KeyboardInterrupt:
                 print("Training stopped by user.")
-            except tf.errors.OutOfRangeError:
+            except IndexError:
                 print("Ran out of training data.")
 
     def predict(self, sentences, embedder, num=3):
         hashtags, tree = pickle.load(open(self.embedding_file_name, "rb"))
         embedding = embedder.embed_sentences(sentences)
+        vocab_list = list(embedder.glove_lookup.keys())
         y = None
         with self.sess.as_default():
             self.saver.restore(self.sess, self.ckpt_file_name)
@@ -100,7 +101,9 @@ class Baseline_Model(object):
         for i, sentence in enumerate(sentences):
             #todo query all at once for speed
             dist, ind = tree.query(y[i].reshape(1, -1), k=num)
+            #dist2, ind2 = embedder.word_embedding_search_tree.query(y[i].reshape(1, -1), k=num)
             predicted_hashtags = [f"#{str(hashtags[idh])}: {dist[0][idi]}" for idi,idh in enumerate(ind[0])]
+            #predicted_words = [f"{vocab_list[idh]}: {dist[0][idi]}" for idi,idh in enumerate(ind2[0])]
             print(f"\n{sentence}\n{predicted_hashtags}")
 
     def inference(self, tweets, num_hidden=2):

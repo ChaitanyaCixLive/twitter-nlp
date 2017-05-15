@@ -15,6 +15,7 @@ class Tweepy_Client(object):
 		self.auth.set_access_token(self.acc_tok, self.acc_sec)
 		self.api = tweepy.API(self.auth)
 		self.tweets = []
+
 	def retrieve(self, user, num_tweets, *oldest):
 		num_tweets = min(200, num_tweets)
 		if oldest:
@@ -25,15 +26,46 @@ class Tweepy_Client(object):
 			# Using recursive retrieve to get around API limit
 			self.retrieve(user, num_tweets-200, self.tweets[-1].id-1)
 
+	def start_stream(self, filter_text, listener):
+		self.stream = tweepy.Stream(auth=self.auth, listener=listener)
+		try:
+			self.stream.filter(languages=["en"], track=["#", filter_text])
+		except KeyboardInterrupt:
+			print("Stream Interrupted")
+
+class Tweepy_Stream_Printer(tweepy.StreamListener):
+	def on_status(self, status):
+		print(status.text)
+	def on_error(self, status_code):
+		if status_code == 420:
+			return False
+
+class Tweepy_Stream_Saver(tweepy.StreamListener):
+	buffer = None
+	def __init__(self, max_count=10_000):
+		if Tweepy_Stream_Saver.buffer is None:
+			Tweepy_Stream_Saver.buffer = []
+		self.max_count = max_count
+		self.i = 0
+	def on_data(self, data):
+		Tweepy_Stream_Saver.buffer.append(data)
+		self.i += 1
+		if self.i >= self.max_count:
+			return False
+
+	def on_error(self, status_code):
+		if status_code == 420:
+			return False
+
 if __name__ == "__main__":
 	from argparse import ArgumentParser
-	from utils.progress import Progress
 	parser = ArgumentParser()
 	parser.add_argument('--user', default='sundarpichai')
 	parser.add_argument('--count', type=int, default=1000)
+	parser.add_argument('--filter', default='lang:en')
 	parser.add_argument('-p', '--print_tweets', action='store_true')
 	args = parser.parse_args()
-	client = TweepyClient()
-	client.retrieve(args.user, args.count)
-	if args.print_tweets:
-		print(client.tweets)
+	client = Tweepy_Client()
+	tss = Tweepy_Stream_Saver()
+	client.start_stream(args.filter, tss)
+	print(tss.buffer)
