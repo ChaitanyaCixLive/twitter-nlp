@@ -1,2 +1,9 @@
 models/__pycache__/*
 utils/__pycache__/*
+utils/twitter/__pycache__/*
+paper/*.log
+paper/*.aux
+paper/*.bcf
+paper/*.xml
+paper/*.bbl
+paper/*.blg
