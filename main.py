@@ -7,8 +7,8 @@ from utils.twitter.json import Twitter_JSON_Parse
 from utils.twitter.tokenizer import Tweet_Tokenizer
 from utils.twitter.tweepy import Tweepy_Client, Tweepy_Stream_Saver
 from utils.embeddings import Embedder
-from models.baseline_model import Baseline_Model
-from models.hybrid_vae_model import Hybrid_VAE_Model
+from models.baseline import Baseline_Model
+from models.aae import AAE_Model
 
 def load_glove(glove_file, glove_shape):
     from collections import defaultdict
@@ -61,7 +61,7 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     #blm.predict(sentences, embedder)
 
 
-    print("Encoding tweets for VAE.")
+    print("Encoding tweets for AAE.")
     #test encode some tweets
     character_count = 160
     batch_size = batch_size
@@ -69,9 +69,9 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
                                     tweets, batch_size=character_count)
     tweet_np = np.array(tweet_str)
     #build model and model graph
-    vae = Hybrid_VAE_Model(tweet_np, character_count=character_count, batch_size=batch_size, epochs=epochs)
-    vae.train()
-    for line in vae.random_sample(batch_size):
+    aae = AAE_Model(tweet_np, character_count=character_count, batch_size=batch_size, epochs=epochs)
+    aae.train()
+    for line in aae.random_sample(10):
         print(Tweet_Tokenizer.parse_character_map(line, char_map))
 
 
