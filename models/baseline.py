@@ -52,35 +52,43 @@ class Baseline_Model(object):
 
     def train_model(self):
         from time import time
-        tweets, hashtags = self.tweet_embeddings, self.hashtag_embeddings
-        batches = int(len(tweets)/self.batch_size)
-        def next_batch(pointer):
-            if pointer+self.batch_size < len(tweets):
-                tweet_batch = tweets[pointer:pointer+self.batch_size]
-                hashtag_batch = hashtags[pointer:pointer+self.batch_size]
+        th_pairs = zip(self.tweet_embeddings, self.hashtag_embeddings)
+        batches = int(len(th_pairs)/self.batch_size)
+        def training_test_set(dataset, split=0.8):
+            split_point = int(split*len(dataset))
+            training = dataset[:split_point]
+            test = dataset[split_point:]
+            return training, test
+        def next_batch(data, pointer):
+            if pointer+self.batch_size < len(data):
+                batch = data[pointer:pointer+self.batch_size]
                 pointer += self.batch_size
-                return tweet_batch, hashtag_batch
+                tb, hb = zip(*batch)
+                return {self.tweet_batch: tb, self.hashtag_batch: hb}
             else:
                 raise IndexError
+        training_pairs, test_pairs = training_test_set(th_pairs)
         print(f"Training baseline model for {self.epochs} epochs ({batches} batches each)")
         with self.sess.as_default():
             self.sess.run(self.init_op)
             try:
                 for e in range(self.epochs):
-                    pointer = 0 #reset batch pointer
+                    training_pointer = 0
+                    test_pointer = 0
                     for b in range(batches):
                         start_time = time()
-                        tweet_batch, hashtag_batch = next_batch(pointer)
                         _, loss_value = self.sess.run(
                             self.nn_train_op,
-                            feed_dict = {
-                                self.tweet_batch: tweet_batch,
-                                self.hashtag_batch: hashtag_batch
-                            })
+                            feed_dict = next_batch(training_pairs, training_pointer))
                         duration = time() - start_time
                         if b % 200 == 0:
                             print(f"Epoch {e+1}, Batch {b}: loss={loss_value}, {duration} sec")
-                    #between epochs, save training data
+                    #between epochs, try test set, print results
+                    start_time = time()
+                    _, loss_value = self.sess.run(
+                        self.nn_train_op,
+                        feed_dict = next_batch(test_pairs, test_pointer))
+                    duration = time() - start_time
                     save_path = self.saver.save(self.sess, self.ckpt_file_name)
                     print(f"Model saved in file {save_path}")
             except KeyboardInterrupt:
@@ -127,6 +135,5 @@ class Baseline_Model(object):
         return tf.nn.l2_loss(tf.subtract(actual, prediction), name="l2_loss")
 
     def train(self, loss, learning_rate):
-        global_step = tf.Variable(0, name="global_step", trainable=False)
-        train_operation = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
+        train_operation = tf.train.AdamOptimizer().minimize(loss)
         return train_operation, loss

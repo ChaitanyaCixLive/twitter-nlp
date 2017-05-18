@@ -1,6 +1,7 @@
 # Shishir Tandale
 
-import numpy as np, json
+import numpy as np
+import json
 
 from utils.twitter.objects import Tweet, User, Hashtag
 from utils.twitter.json import Twitter_JSON_Parse
@@ -9,6 +10,7 @@ from utils.twitter.tweepy import Tweepy_Client, Tweepy_Stream_Saver
 from utils.embeddings import Embedder
 from models.baseline import Baseline_Model
 from models.aae import AAE_Model
+from models.lstm import LSTM_Model
 
 def load_glove(glove_file, glove_shape):
     from collections import defaultdict
@@ -38,7 +40,7 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     #tss = Tweepy_Stream_Saver(max_count = num_tweets)
     #client.start_stream("the", tss)
     #client.retrieve(username, num_tweets)
-    json_text = open(test_file).readlines()[:num_tweets] #tss.buffer #[json.dumps(tweet._json) for tweet in client.tweets]
+    json_text = open(test_file).readlines()[:num_tweets]
     #print(json)
 
     #parse json
@@ -71,8 +73,9 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     #build model and model graph
     aae = AAE_Model(tweet_np, character_count=character_count, batch_size=batch_size, epochs=epochs)
     aae.train()
-    for line in aae.random_sample(10):
+    for line in aae.generate_random_sample(15):
         print(Tweet_Tokenizer.parse_character_map(line, char_map))
+        print()
 
 
 if __name__ == "__main__":

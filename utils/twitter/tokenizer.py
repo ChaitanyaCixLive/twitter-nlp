@@ -1,13 +1,14 @@
 # Shishir Tandale
 
 import re
+from collections import defaultdict
 class Tweet_Tokenizer(object):
 
     @staticmethod
     def build_character_map(tweets, maximum_size=None, batch_size=160):
         #returns character map, and encoded tweet string
         encoder = dict()
-        decoder = dict()
+        decoder = defaultdict(lambda: ' ', dict())
         _tweets = tweets if maximum_size is None else tweets[:maximum_size]
         tweet_str = Tweet_Tokenizer.to_string(_tweets, batch_size)
         for char in tweet_str:
