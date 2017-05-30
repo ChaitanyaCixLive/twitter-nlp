@@ -30,8 +30,8 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     glove_shape = (glove_size, embedding_dim)
     glove_file="../data/twitter-nlp/embeddings/glove.twitter.27B.25d.txt"
     print(f"Loading GloVe embeddings ({embedding_dim}).")
-    glove_params = load_glove(glove_file, glove_shape)
-    embedder = Embedder(glove_params)
+    #glove_params = load_glove(glove_file, glove_shape)
+    #embedder = Embedder(glove_params)
 
     #load json from test_file, parse with Twitter_JSON_Parse
     #json = open(test_file).readlines()[:num_tweets]
@@ -47,7 +47,7 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     twitter_parse = Twitter_JSON_Parse(json_text)
     tweets, hashtags = list(Tweet.set), list(Hashtag.set)
     print(f"Num tweets: {len(tweets)}, Num unique hashtags: {len(hashtags)}.")
-
+#
     #package params and initialize baseline model
     #print("Initializing Baseline Model.")
     #blm = Baseline_Model(tweets, hashtags, embedding_dim, epochs, batch_size)
@@ -81,10 +81,10 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
 if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--numtweets', type=int, default=100_000)
+    parser.add_argument('--numtweets', type=int, default=200_000)
     parser.add_argument('--username', default='realDonaldTrump')
-    parser.add_argument('--epochs', type=int, default=15)
-    parser.add_argument('--batchsize', type=int, default=25)
+    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--batchsize', type=int, default=40)
     parser.add_argument('-p', '--numprint', type=int, default=0)
     parser.add_argument('-a', '--hashtags', type=int, default=50)
     parser.add_argument('-t', '--testfile', default='../data/twitter-nlp/json/cache-0.json')
