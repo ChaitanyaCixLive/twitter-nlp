@@ -186,8 +186,39 @@
 		embedding space. These predictions are parsed by performing a nearest neighbors search
 		on our list of embedded hashtags by using a ball tree data structure for efficiency.
 
+<<<<<<< d3f0b3351171181ecc54cbe8f5d43c313b926736
 	\subsection{LSTM Generator}
 	\subsection{Wasserstein AAE Generator}
+=======
+	\subsection{Wasserstein AAE Generator}
+		This model is aimed at embedding a sentence within a probability distribution
+		and training a decoder to reconstruct it. The general inspiration for this came from
+		\cite{Makhzani2015} and \cite{Arjovski2017}'s works on adversarial autoencoders and
+		Wasserstein GAN, namely, the concept of using a critic network to act as an approximation
+		to the Wasserstein metric ($W$) to replace Kullback-Leiber divergence ($KL$) normally used in AAEs.
+		$W$ is seen as a much better approximation of the difference between two distributions
+		especially in the context of text data in machine learning tasks because it yields
+		better training results and has smooth gradients everywhere. $W$ is even considered to be optimal
+		as long as the function approximating it is 1-Lipschitz, which in this paper we enforce
+		by using a gradient penalty according to \cite{Gulrajani2017}. Instead of using
+		batch normalization we use mean-only batch normalization with the intuition that
+		allowing each sample to have an unnormalized variance, our model can more easily
+		learn to recognize these subtle differences -- especially frequent in a one-hot encoded
+		text vector.
+
+		The encoder of this model is a stack of 1-Dimensional convolutions each with stride 2, followed by a dense layer
+		and then a translation layer between our encoder's outputed $\mu$ and $\sigma$ values, and a computed $z$ vector.
+		This translation layer applys a split operation on the outputted encoded vector, followed by a tanh activation
+		on each half. This was done to ensure the encoder's output gradients do not explode, which happened
+		frequently without this nonlinearity in place. Mean-only batch normalization is used in
+		the convolution stack, followed by a ReLU to ensure our encoder can see the differences
+		between pixels well, but the actual values stay well normalized.
+
+		The decoder consists of a dense layer, followed by a stack of transposed convolutions with stride 2 interlaced
+		with mean-only batch normalization and concatenated ReLUs, which accoriding to cite{Shang2016}
+
+
+>>>>>>> implemented mean-only batch norm in aae. updated references, paper. renamed files to avoid common package name conflicts
 
 \section{Dataset}
 	The dataset used was datahub.io's Twitter 2012 Presidential Election dataset. This

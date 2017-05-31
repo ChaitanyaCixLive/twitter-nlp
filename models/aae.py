@@ -4,117 +4,111 @@
 import tensorflow as tf, numpy as np
 
 class AAE_Model(object):
-    def __init__(self, encoded_tweets, character_count=160, num_layers=5, kernel_size=4,
-                scope='twitternlp_aae', batch_size=20, latent_size=280, epochs=1):
+    def __init__(self, encoded_tweets, character_count=160, num_layers=5, kernel_size=5,
+                scope='twitternlp_aae', batch_size=30, latent_size=200, epochs=1,
+                ckpt_file_name="./aae_model.ckpt"):
         self.num_layers = num_layers
         self.character_count = character_count
-        #size convolution stack reduces data to
-        self.conv_reduction_size = int(self.character_count/2**self.num_layers)
-        self.latent_size = latent_size
-        #half of our latent vector is z, the other half is sigma
-        self.z_size = int(self.latent_size/2)
-        #conv stack filters
-        self.filters = [128, 256, 512, 512, 512][:num_layers]
-        self.decode_filters = self.filters[-1::-1]
+        self.encoded_tweets = encoded_tweets
         self.kernel_size = kernel_size
-        self.ckpt_file_name = "./aae_model.ckpt"
+        self.ckpt_file_name = ckpt_file_name
         self.scope = scope
         self.batch_size = batch_size
         self.epochs = epochs
-        #number of times critic is trained before generator
-        self.n_critic = 5
-
-        self.learning_rate = 0.0001
-        self.encoder_aux_decoder_loss = 0.02
-        self.critic_lambda = 8
-        self.encoded_tweets = encoded_tweets
-        #split encoded tweets up by character_count, then batch_size. should result in num_batches of arrays
-        #calculate total number of even-sized batches
+        #cut encoded_tweets to size (to a multiple of batch_size)
         self.num_batches = int(len(self.encoded_tweets)/(self.character_count*self.batch_size))
         self.encoded_tweets = self.encoded_tweets[:self.num_batches*self.batch_size*self.character_count]
         self.encoded_tweets = self.encoded_tweets.reshape(self.num_batches, self.batch_size, self.character_count)
         print(f"Loaded {len(self.encoded_tweets)} batches of input into VAE.")
+        #calculate some values ahead of time for convenience
+        self.conv_reduction_size = int(self.character_count/2**self.num_layers)
+        self.latent_size = latent_size
+        self.z_size = int(self.latent_size/2)
+        self.filters = [128, 256, 512, 512, 512][:num_layers]
+        self.decode_filters = self.filters[-1::-1]
+
+        #number of times critic is trained before generator
+        self.n_critic = 5
+        #trade off between encoder listening to critic or decoder for feedback
+        self.encoder_aux_decoder_loss = 0.5
+        #critic gradient penalty multiplier (enforces 1-Lipschitz constraint on critic)
+        self.critic_lambda = 10
+        self.learning_rate = 0.0001 #from gradient penalty paper
 
         self.x = tf.placeholder(tf.float32, shape=[None, self.character_count])
         self.z = tf.placeholder(tf.float32, shape=[None, self.z_size])
 
-        #builds network ops, training ops
+        #builds network ops, loss ops, training ops
         self.build_network()
-
-        self.init_op = tf.global_variables_initializer()
         self.saver = tf.train.Saver()
 
     def build_network(self):
         #network ops
         #building blocks
+        self.random_op = tf.random_normal([self.batch_size, self.z_size], mean=0, stddev=1)
+        #initialize all networks
         self._encoder_net = self._encoder(self.x, reuse=False)
         self._decoder_net = self._decoder(self.z, reuse=False)
         self._critic_net = self._critic(self.z, reuse=False)
         #combinations of building blocks
-        self.encoder_op = self.input_encoder(self.x)
-        self.enc_dec_op = self.encoder_decoder()
-        self.enc_critic_op = self.encoder_critic()
-        self.random_critic_op = self.random_critic()
+        self.encoder_op = self._encoder(self.x)
+        self.enc_dec_op = self._decoder(self.encoder_op)
+        self.enc_critic_op = self._critic(self.encoder_op)
+        self.random_critic_op = self._critic(self.random_op)
         #collect model variables
         self.enc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "encoder")
         self.dec_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "decoder")
         self.critic_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "critic")
-        #training ops
-        encoder_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
-        generator_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
-        critic_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
 
-        #TODO improve generation loss (use another discriminator/ GAN architecture?)
+        #loss and training ops
+        #calculate losses
         self.generation_loss_op = self.generation_loss()
-
-        #factor in poor generation into our encoder loss
-        self.encoder_loss_op = self.encoder_loss() + self.encoder_aux_decoder_loss*self.generation_loss_op
-
-        #calculate gradient penalty to enhance our critic loss
+        self.encoder_loss_op = self.encoder_loss()
+        self.critic_loss_op = self.critic_loss()
+        #calculate gradient penalty to enforce 1-Lipschitz constraint on critic
         z_real = tf.random_normal([self.batch_size, self.z_size], mean=0, stddev=1)
         z_fake = self.encoder_op
         eps = tf.random_uniform([1], 0, 1)
         z_hat = tf.add(tf.multiply(eps, z_real), tf.multiply(1-eps, z_fake))
         grads = tf.norm(tf.gradients(self._critic(z_hat), [z_hat])[0], 2)
-        self.critic_gradient_penalty = tf.square(tf.add(grads, -1))
-        self.critic_loss_op = self.critic_loss() + self.critic_lambda*self.critic_gradient_penalty
+        self.critic_gradient_penalty = self.critic_lambda * (tf.square(tf.add(grads, -1)))
 
-        self.train_encoder_op = encoder_optimizer.minimize(self.encoder_loss_op, var_list=self.enc_vars)
+        #training ops
+        #helper func to interpolate linearly between two elements in a pair
+        def interpolate(pair, alpha):
+            return pair[0]*alpha + pair[1]*(1-alpha)
+        encoder_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
+        generator_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
+        critic_optimizer = tf.train.AdamOptimizer(self.learning_rate, 0.5, 0.9)
+        self.train_encoder_op = encoder_optimizer.minimize(
+                interpolate((self.generation_loss_op, self.encoder_loss_op), self.encoder_aux_decoder_loss),
+                var_list=self.enc_vars)
+        self.train_critic_op = critic_optimizer.minimize(
+                self.critic_loss_op + self.critic_gradient_penalty,
+                var_list=self.critic_vars)
+        #TODO improve generation loss (use another discriminator/ GAN architecture?)
         self.train_generator_op = generator_optimizer.minimize(self.generation_loss_op, var_list=self.dec_vars)
-        self.train_critic_op = critic_optimizer.minimize(self.critic_loss_op, var_list=self.critic_vars)
 
+        self.init_op = tf.global_variables_initializer()
 
     def encoder_loss(self):
         return tf.reduce_mean(-self._critic(self.encoder_op))
     def critic_loss(self):
         #original critic loss
-        z_real = tf.random_normal([self.batch_size, self.z_size], mean=0, stddev=1)
-        z_fake = self.encoder_op
-        w_real = self._critic(z_real)
-        w_fake = self._critic(z_fake)
+        w_real = self.random_critic_op
+        w_fake = self.enc_critic_op
         critic_loss = tf.add(w_fake, -w_real)
         return tf.reduce_mean(critic_loss)
     def generation_loss(self):
-        _x = self.enc_dec_op
         x = self.x
-        #mse
-        reconstruction_loss = tf.reduce_mean(tf.square(tf.add(x, -_x)))
-        return tf.reduce_mean(reconstruction_loss)
-    def input_encoder(self, x):
-        self.mu, self.log_sigma_sq = self._encoder(x)
-        #eps = tf.random_normal((self.batch_size, self.z_size), 1, 0.001, dtype=tf.float32)
-        #z = mu + sqrt(exp(log_sigma_sq)) * epsilon
-        return tf.add(self.mu, (tf.sqrt(tf.exp(self.log_sigma_sq))))
-    def encoder_decoder(self):
-        #single pass through autoencoder
-        return self._decoder(self.encoder_op)
-    def encoder_critic(self):
-        #encode x, pass through critic
-        return self._critic(self.encoder_op)
-    def random_critic(self):
-        #pass random normal through critic
-        z = tf.random_normal([self.batch_size, self.z_size], mean=0, stddev=1)
-        return self._critic(z)
+        _x = self.enc_dec_op
+        reconstruction_loss = tf.reduce_mean(tf.square(tf.add(x, -_x))) #mse
+        return reconstruction_loss
+
+    def mean_only_batch_norm(self, net):
+        mu, sigma = tf.nn.moments(net, axes=[0])
+        sigma = tf.ones(sigma.get_shape().as_list()) #replace sigma with all ones
+        return tf.nn.batch_normalization(net, mu, sigma, None, None, 1e-10)
 
     def generate_random_sample(self, num_samples=10):
         logits = np.zeros((self.batch_size, self.character_count), dtype=np.float32)
@@ -132,9 +126,7 @@ class AAE_Model(object):
                 batch = self.encoded_tweets[batch_pointer]
                 batch_pointer += 1
                 return batch
-            else:
-                raise IndexError
-
+            else: raise IndexError
         from time import time
         print(f"Training AAE for {self.epochs} epochs, {self.num_batches} batches each.")
         with tf.Session().as_default() as sess:
@@ -143,7 +135,7 @@ class AAE_Model(object):
                 for e in range(self.epochs):
                     batch_pointer = 0
                     for b in range(self.num_batches):
-                        n_critic = 100 if b+e*self.num_batches < 25 else self.n_critic
+                        n_critic = 75 if b+e*self.num_batches < 30 else self.n_critic
                         #start_time = time()
                         for t in range(n_critic):
                             #_ = sess.run(self.clip_critic_weights_op)
@@ -175,26 +167,25 @@ class AAE_Model(object):
                 inputs=z,
                 units=self.latent_size,
                 name="dense_critic_1")
-            #net = tf.layers.batch_normalization(net)
+            #net = self.mean_only_batch_norm(net)
             net = tf.nn.relu(net)
             net = tf.layers.dense(
                 inputs=net,
                 units=int(2*self.latent_size/3),
                 name="dense_critic_2")
-            #net = tf.layers.batch_normalization(net)
+            #net = self.mean_only_batch_norm(net)
             net = tf.nn.relu(net)
             net = tf.layers.dense(
                 inputs=net,
                 units=int(self.latent_size/3),
                 name="dense_critic_3")
-            #net = tf.layers.batch_normalization(net)
+            #net = self.mean_only_batch_norm(net)
             net = tf.nn.relu(net)
             net = tf.layers.dense(
                 inputs=net,
                 units=1,
                 name="dense_critic_output")
             return net
-
 
     def _encoder(self, x, reuse=True, scope="encoder"):
         with tf.variable_scope(scope, reuse=reuse):
@@ -204,11 +195,11 @@ class AAE_Model(object):
                 net = tf.layers.conv1d(
                     inputs=net,
                     filters=self.filters[layer],
-                    kernel_size=7 if layer==0 else self.kernel_size,
+                    kernel_size=self.kernel_size,
                     strides=2,
                     padding="same",
                     name=f"conv{layer+1}")
-                #net = tf.layers.batch_normalization(net)
+                net = self.mean_only_batch_norm(net)
                 net = tf.nn.relu(net)
             #flatten results of convolution stack, feed through dense layer
             #cannot get shape of last_layer automatically, so we rely on obj vars
@@ -216,9 +207,11 @@ class AAE_Model(object):
             net = tf.reshape(net, [-1, num_nodes])
             #returns output of linear layer, chopped into two pieces -- mu and log sigma sq
             #each is z_size big, which is half of our latent vector size.
-            mu = tf.tanh(tf.layers.dense(inputs=net, units=self.z_size, name="encode_mu"))
-            log_sigma_sq = tf.tanh(tf.layers.dense(inputs=net, units=self.z_size, name="encode_logsigmasq"))
-            return mu, log_sigma_sq
+            net = tf.layers.dense(inputs=net, units=self.latent_size)
+            mu = net[:, :self.z_size]
+            log_sigma_sq = net[:, self.z_size:]
+            #z = mu + sqrt(exp(log_sigma_sq))
+            return tf.add(tf.tanh(mu), (tf.sqrt(tf.exp(tf.tanh(log_sigma_sq)))))
 
     def _decoder(self, z, reuse=True, scope="decoder"):
         with tf.variable_scope(scope, reuse=reuse):
@@ -241,7 +234,10 @@ class AAE_Model(object):
             #conv_t+relu stack
             for layer in range(self.num_layers):
                 net = conv_t(net, layer)
-                net = tf.nn.relu(net)
+                #mean-only batch norm from arxiv:1602.07868
+                net = self.mean_only_batch_norm(net)
+                #crelu achieves better training performance in conv stacks
+                net = tf.nn.crelu(net)
             #reduce dimensionality and reshape to sentence
             net = conv_t(net, self.num_layers, filters=1, strides=1)
             net = tf.reshape(net, [-1, self.character_count])

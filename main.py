@@ -4,9 +4,9 @@ import numpy as np
 import json
 
 from utils.twitter.objects import Tweet, User, Hashtag
-from utils.twitter.json import Twitter_JSON_Parse
+from utils.twitter.json_utils import Twitter_JSON_Parse
 from utils.twitter.tokenizer import Tweet_Tokenizer
-from utils.twitter.tweepy import Tweepy_Client, Tweepy_Stream_Saver
+from utils.twitter.tweepy_client import Tweepy_Client, Tweepy_Stream_Saver
 from utils.embeddings import Embedder
 from models.baseline import Baseline_Model
 from models.aae import AAE_Model
@@ -38,7 +38,7 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     #print(f"Downloading {num_tweets} new tweets.")
     #client = Tweepy_Client()
     #tss = Tweepy_Stream_Saver(max_count = num_tweets)
-    #client.start_stream("the", tss)
+    #client.start_stream("graduation", tss)
     #client.retrieve(username, num_tweets)
     json_text = open(test_file).readlines()[:num_tweets]
     #print(json)
@@ -54,6 +54,8 @@ def main(num_tweets, num_hashtags, test_file, num_hashtags_print, username, epoc
     #blm.create_embeddings(embedder)
     #blm.train_model()
     #sentences = [t.orig_text for t in tweets[:6]]
+    print(tweets[:15])
+
     sentences = [
         "Do Offred and the Commander actually know the rules of Scrabble?",
         "Sunday shows struggle to book anyone willing to speak on behalf of Donald Trump",
@@ -83,8 +85,8 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--numtweets', type=int, default=200_000)
     parser.add_argument('--username', default='realDonaldTrump')
-    parser.add_argument('--epochs', type=int, default=5)
-    parser.add_argument('--batchsize', type=int, default=40)
+    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--batchsize', type=int, default=30)
     parser.add_argument('-p', '--numprint', type=int, default=0)
     parser.add_argument('-a', '--hashtags', type=int, default=50)
     parser.add_argument('-t', '--testfile', default='../data/twitter-nlp/json/cache-0.json')
